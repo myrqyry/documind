@@ -8,8 +8,6 @@ import {
 } from '../types';
 
 export class FormatGenerator {
-  constructor() {}
-
   async generate(
     result: ProcessingResult,
     formats: OutputFormat[]
@@ -55,10 +53,11 @@ export class FormatGenerator {
     });
 
     content += `\n## Learning Path\n\n`;
-    analysis.learningPath.forEach(step => {
-        content += `1. **${step.title}**: ${step.description}\n`
+    analysis.learningPath.forEach((step, index) => {
+        content += `${index + 1}. **${step.title}**: ${step.description}\n`
     });
 
+    const tokenCount = await this.countTokens(content);
     return {
       filename: 'AGENTS.md',
       content,
@@ -68,7 +67,7 @@ export class FormatGenerator {
         generatedAt: new Date(),
         targetModel: 'gemini-2.5-pro',
         qualityScore: 0.8,
-        tokenCount: Math.ceil(content.length / 4),
+        tokenCount,
       },
     };
   }
@@ -85,6 +84,7 @@ export class FormatGenerator {
         content += `* \`${entity.name}\`: A key ${entity.type} that is responsible for ${entity.description}.\n`
     })
 
+    const tokenCount = await this.countTokens(content);
     return {
       filename: 'copilot-instructions.md',
       content,
@@ -94,13 +94,14 @@ export class FormatGenerator {
         generatedAt: new Date(),
         targetModel: 'gemini-2.5-pro',
         qualityScore: 0.75,
-        tokenCount: Math.ceil(content.length / 4),
+        tokenCount,
       },
     };
   }
 
   private generateJson(result: ProcessingResult): GeneratedFile {
     const content = JSON.stringify(result, null, 2);
+    const tokenCount = await this.countTokens(content);
     return {
       filename: 'documind-result.json',
       content,
@@ -110,8 +111,14 @@ export class FormatGenerator {
         generatedAt: new Date(),
         targetModel: 'gemini-2.5-pro',
         qualityScore: 0.9,
-        tokenCount: Math.ceil(content.length / 4),
+        tokenCount,
       },
     };
+  }
+
+  private async countTokens(text: string): Promise<number> {
+    const model = this.gemini.getGenerativeModel({ model: "gemini-pro" });
+    const { totalTokens } = await model.countTokens(text);
+    return totalTokens;
   }
 }

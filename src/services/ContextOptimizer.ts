@@ -9,20 +9,18 @@ import {
 } from '../types';
 
 export class ContextOptimizer {
-  constructor() {}
-
   async optimize(
     document: ParsedDocument,
     analysis: SemanticAnalysis,
     graph: KnowledgeGraph,
     options: ProcessingOptions
   ): Promise<OptimizedContext> {
-    const chunks = this.performSemanticChunking(document);
+    const chunks = await this.performSemanticChunking(document);
     this.enrichChunks(chunks, analysis, graph);
-    this.applyModelOptimizations(chunks, options);
+    await this.applyModelOptimizations(chunks, options);
 
     const totalTokens = chunks.reduce((sum, chunk) => sum + chunk.tokens, 0);
-    const compressionRatio = this.calculateCompression(document, totalTokens);
+    const compressionRatio = await this.calculateCompression(document, totalTokens);
 
     return {
       chunks,
@@ -33,12 +31,12 @@ export class ContextOptimizer {
     };
   }
 
-  private performSemanticChunking(document: ParsedDocument): ContextChunk[] {
+  private async performSemanticChunking(document: ParsedDocument): Promise<ContextChunk[]> {
     const chunks: ContextChunk[] = [];
     if (document.structure.sections.length > 0) {
-      document.structure.sections.forEach(section => {
-        chunks.push(this.createChunkFromSection(section));
-      });
+      for (const section of document.structure.sections) {
+        chunks.push(await this.createChunkFromSection(section));
+      }
     } else {
       // Fallback for documents with no clear section structure
       const content = document.content;
@@ -49,7 +47,7 @@ export class ContextOptimizer {
           id: `chunk-fallback-${i}`,
           content: chunkContent,
           type: 'content',
-          tokens: this.countTokens(chunkContent),
+          tokens: await this.countTokens(chunkContent),
           importance: 0.5,
           prerequisites: [],
           relatedChunks: [],
@@ -60,13 +58,13 @@ export class ContextOptimizer {
     return chunks;
   }
 
-  private createChunkFromSection(section: Section): ContextChunk {
+  private async createChunkFromSection(section: Section): Promise<ContextChunk> {
     const content = `${section.title}\n${section.content}`;
     return {
       id: `chunk-sec-${section.id}`,
       content: content,
       type: 'content',
-      tokens: this.countTokens(content),
+      tokens: await this.countTokens(content),
       importance: 1.0 - (section.level * 0.2), // Higher level = more important
       prerequisites: section.parent ? [`chunk-sec-${section.parent}`] : [],
       relatedChunks: section.children.map(childId => `chunk-sec-${childId}`),
@@ -91,28 +89,30 @@ export class ContextOptimizer {
     });
   }
 
-  private applyModelOptimizations(
+  private async applyModelOptimizations(
     chunks: ContextChunk[],
     options: ProcessingOptions
   ) {
     // Example: Add special tokens or formatting for a specific model
     if (options.targetModel === 'gemini-2.5-pro') {
-      chunks.forEach(chunk => {
+      for (const chunk of chunks) {
         chunk.content = `[START_CHUNK]\n${chunk.content}\n[END_CHUNK]`;
-        chunk.tokens = this.countTokens(chunk.content);
-      });
+        chunk.tokens = await this.countTokens(chunk.content);
+      }
     }
   }
 
-  private countTokens(text: string): number {
-      return Math.ceil(text.length / 4);
+  private async countTokens(text: string): Promise<number> {
+    const model = this.gemini.getGenerativeModel({ model: "gemini-pro" });
+    const { totalTokens } = await model.countTokens(text);
+    return totalTokens;
   }
 
-  private calculateCompression(
+  private async calculateCompression(
     document: ParsedDocument,
     optimizedTokens: number
-  ): number {
-    const originalTokens = this.countTokens(document.content);
+  ): Promise<number> {
+    const originalTokens = await this.countTokens(document.content);
     return originalTokens > 0 ? optimizedTokens / originalTokens : 0;
   }
 

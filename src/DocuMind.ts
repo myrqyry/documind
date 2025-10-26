@@ -25,16 +25,17 @@ export class DocuMind {
     geminiApiKey: string;
     enableMCP?: boolean;
     mcpPort?: number;
+    chatModel?: string;
   }) {
     this.gemini = new GoogleGenAI({ apiKey: options.geminiApiKey });
     this.documentParser = new DocumentParser();
     this.semanticAnalyzer = new SemanticAnalyzer(this.gemini);
     this.contextOptimizer = new ContextOptimizer(this.gemini);
     this.formatGenerator = new FormatGenerator(this.gemini);
-    this.geminiChat = new GeminiChat(this.gemini);
+    this.geminiChat = new GeminiChat(this.gemini, options.chatModel);
 
     if (options.enableMCP) {
-      this.mcpServer = new MCPServer(this, options.mcpPort || 3001);
+      this.mcpServer = new MCPServer(this, options.mcpPort || 0);
     }
   }
 
