@@ -1,15 +1,18 @@
 import { GoogleGenerativeAI } from '@google/genai';
-import { ChatMessage, DocuMindConfig } from '../types';
+import { ChatMessage } from '../types';
+import { randomUUID } from 'crypto';
 
 export class GeminiChat {
   private genAI: GoogleGenerativeAI;
+  private model: string;
 
-  constructor(config: DocuMindConfig) {
-    this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
+  constructor(genAI: GoogleGenerativeAI, model: string = 'gemini-2.5-pro') {
+    this.genAI = genAI;
+    this.model = model;
   }
 
   async sendMessage(history: ChatMessage[], newMessage: string): Promise<ChatMessage> {
-    const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+    const model = this.genAI.getGenerativeModel({ model: this.model });
 
     const chat = model.startChat({
       history: history.map(msg => ({
@@ -23,7 +26,7 @@ export class GeminiChat {
     const text = response.text();
 
     return {
-      id: `msg-${Date.now()}`,
+      id: `msg-${randomUUID()}`,
       role: 'assistant',
       content: text,
       timestamp: new Date(),
