@@ -43,32 +43,19 @@ export class DocuMind {
    * Main document processing pipeline
    */
   async processDocument(options: ProcessingOptions): Promise<ProcessingResult> {
-    try {
-      // Phase 1: Document Ingestion
-      const parsedDocument = await this.documentParser.parse(options.source);
-
-      // Phase 2: Semantic Analysis
-      const analysis = await this.semanticAnalyzer.analyze(parsedDocument);
-
-      // Phase 3: Knowledge Graph Generation
+   try {
+     const parsedDocument = await this.documentParser.parse(options.source);
+         const [analysis, preliminaryOptimization] = await Promise.all([
+       this.semanticAnalyzer.analyze(parsedDocument),
+       this.contextOptimizer.preliminaryOptimize(parsedDocument, options.targetModel)
+     ]);
       const knowledgeGraph = await this.semanticAnalyzer.buildKnowledgeGraph(analysis);
-
-      // Phase 4: Context Optimization
-      const optimizedContext = await this.contextOptimizer.optimize(
-        knowledgeGraph, 
-        options.targetModel
-      );
-
-      // Phase 5: Format Generation
-      const generatedFormats = await this.formatGenerator.generate(
-        optimizedContext, 
-        options.outputFormats
-      );
-
-      // Phase 6: Quality Validation
+         const [optimizedContext, generatedFormats] = await Promise.all([
+       this.contextOptimizer.optimize(knowledgeGraph, options.targetModel),
+       this.formatGenerator.generate(preliminaryOptimization, options.outputFormats)
+     ]);
       const validatedResult = await this.validateResult(generatedFormats);
-
-      return {
+     return {
         id: parsedDocument.id,
         status: 'completed',
         originalDocument: parsedDocument,
@@ -82,11 +69,10 @@ export class DocuMind {
           compressionRatio: optimizedContext.compressionRatio
         }
       };
-
-    } catch (error) {
-      throw new Error(`Document processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
+   } catch (error) {
+     throw new Error(`Document processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+   }
+ }
 
   /**
    * Interactive chat interface for document modification

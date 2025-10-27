@@ -1,28 +1,45 @@
 import { GoogleGenAI } from '@google/genai';
 import type { ParsedDocument, SemanticAnalysis, KnowledgeGraph } from '../types.js';
+import { DocumentProcessingError } from '../utils/errors.js';
 
 export class SemanticAnalyzer {
   constructor(private gemini: GoogleGenAI) {}
 
   async analyze(document: ParsedDocument): Promise<SemanticAnalysis> {
-    const model = this.gemini.getGenerativeModel({ model: "gemini-pro" });
-    const prompt = `Analyze the following document and extract key entities, relationships, and concepts. Return the result as a JSON object with the following structure: { "entities": [], "relationships": [], "concepts": [] }.\n\nDocument: ${document.content}`;
+    const model = this.gemini.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const prompt = `Analyze this document and extract entities, relationships, and concepts:
+    ${document.content.substring(0, 8000)}...`;
 
     try {
       const result = await model.generateContent(prompt);
-      const response = result.response;
-      const text = response.text();
-      const parsed = JSON.parse(text);
+      const response = result.response.text();
+      // Parse AI response into structured format
+      return this.parseAnalysisResponse(response, document);
+    } catch (error) {
+      throw new DocumentProcessingError(
+        'Failed to analyze document semantics',
+        'SEMANTIC_ANALYSIS_FAILED',
+        error
+      );
+    }
+  }
+
+  private parseAnalysisResponse(response: string, document: ParsedDocument): SemanticAnalysis {
+    try {
+      const parsed = JSON.parse(response);
       return {
         entities: parsed.entities || [],
         relationships: parsed.relationships || [],
         concepts: parsed.concepts || [],
-        dependencies: [],
-        learningPath: [],
+        dependencies: parsed.dependencies || [],
+        learningPath: parsed.learningPath || [],
       };
     } catch (error) {
-      console.error("Error analyzing document:", error);
-      return { entities: [], relationships: [], concepts: [], dependencies: [], learningPath: [] };
+      throw new DocumentProcessingError(
+        'Failed to parse semantic analysis response',
+        'SEMANTIC_ANALYSIS_PARSE_FAILED',
+        error
+      );
     }
   }
 
