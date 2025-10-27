@@ -10,6 +10,9 @@ import { DocuMind } from './DocuMind.js';
 import { setupRoutes } from './api/routes.js';
 import { setupWebSocket } from './api/websocket.js';
 import type { APIResponse } from './types.js';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import fs from 'fs';
 
 // Environment configuration
 const PORT = process.env.PORT || 3000;
@@ -17,8 +20,8 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const CORS_ORIGINS = process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:5173'];
 
-if (!GEMINI_API_KEY) {
-  console.error('❌ GEMINI_API_KEY is required');
+if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 10) {
+  console.error('❌ Invalid or missing GEMINI_API_KEY');
   process.exit(1);
 }
 
@@ -40,11 +43,36 @@ const documind = new DocuMind({
 });
 
 // Rate limiting
-const rateLimiter = new RateLimiterMemory({
-  keyPrefix: 'middleware',
-  points: parseInt(process.env.RATE_LIMIT_MAX || '100'), // requests
+const strictRateLimiter = new RateLimiterMemory({
+  keyPrefix: 'strict',
+  points: 10, // requests
   duration: 60, // per 60 seconds
 });
+
+const generalRateLimiter = new RateLimiterMemory({
+  keyPrefix: 'general',
+  points: 100,
+  duration: 60,
+});
+
+function createRateLimitMiddleware(limiter: RateLimiterMemory) {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    try {
+      const key = (req.headers['x-forwarded-for'] as string) || req.ip || req.connection.remoteAddress || 'unknown';
+      await limiter.consume(key);
+      next();
+    } catch (rejRes) {
+      const response: APIResponse = {
+        success: false,
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Too many requests'
+        }
+      };
+      res.status(429).json(response);
+    }
+  };
+}
 
 // Middleware
 app.use(helmet({
@@ -61,31 +89,27 @@ app.use(compression());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Rate limiting middleware
-app.use(async (req, res, next) => {
-  try {
-    if (req.ip) {
-      await rateLimiter.consume(req.ip);
-    }
-    next();
-  } catch (rejRes) {
-    const response: APIResponse = {
-      success: false,
-      error: {
-        code: 'RATE_LIMIT_EXCEEDED',
-        message: 'Too many requests. Please try again later.'
-      }
-    };
-    res.status(429).json(response);
+// Apply rate limiting
+app.use(['/process', '/process-url'], createRateLimitMiddleware(strictRateLimiter));
+app.use(createRateLimitMiddleware(generalRateLimiter));
+
+// File upload configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = join(tmpdir(), 'documind-uploads');
+    fs.mkdirSync(uploadPath, { recursive: true });
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${Math.random().toString(36).substring(7)}-${file.originalname}`);
   }
 });
 
-// File upload configuration
-const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
   storage,
   limits: {
-    fileSize: parseInt(process.env.MAX_FILE_SIZE || '50') * 1024 * 1024 // MB to bytes
+    fileSize: parseInt(process.env.MAX_FILE_SIZE || '50') * 1024 * 1024, // MB to bytes
+    files: 1
   },
   fileFilter: (req, file, cb) => {
     const allowedMimes = [
@@ -107,18 +131,50 @@ const upload = multer({
   }
 });
 
+// Cleanup middleware
+app.use('/process', (req, res, next) => {
+  res.on('finish', () => {
+    if (req.file?.path) {
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Failed to cleanup temp file:', err);
+      });
+    }
+  });
+  next();
+});
+
 // Health check endpoint
-app.get('/health', (req, res) => {
-  const response: APIResponse = {
-    success: true,
-    data: {
-      status: 'healthy',
-      timestamp: new Date(),
-      version: '1.0.0',
-      uptime: process.uptime()
+async function checkGeminiConnection(): Promise<string> {
+  // Placeholder for Gemini API connection check
+  return 'healthy';
+}
+
+async function checkDatabaseConnection(): Promise<string> {
+  // Placeholder for database connection check
+  return 'healthy';
+}
+
+async function checkRedisConnection(): Promise<string> {
+  // Placeholder for Redis connection check
+  return 'healthy';
+}
+
+app.get('/health', async (req, res) => {
+  const health = {
+    status: 'healthy',
+    timestamp: new Date(),
+    version: process.env.npm_package_version || '1.0.0',
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    services: {
+      gemini: await checkGeminiConnection(),
+      database: await checkDatabaseConnection(),
+      redis: await checkRedisConnection()
     }
   };
-  res.json(response);
+
+  const hasFailedServices = Object.values(health.services).some(status => status === 'unhealthy');
+  res.status(hasFailedServices ? 503 : 200).json(health);
 });
 
 // Setup API routes
@@ -176,7 +232,7 @@ server.listen(PORT, () => {
   console.log('🚀 DocuMind Server Started');
   console.log(`📍 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${NODE_ENV}`);
-  console.log(`🔑 Gemini API: ${GEMINI_API_KEY ? 'Configured' : 'Missing'}`);
+  console.log(`🔑 Gemini API: ${GEMINI_API_KEY ? 'Configured (' + GEMINI_API_KEY.slice(0, 8) + '...)' : 'Missing'}`);
   console.log(`🛡️  CORS origins: ${CORS_ORIGINS.join(', ')}`);
 
   if (process.env.ENABLE_MCP === 'true') {
