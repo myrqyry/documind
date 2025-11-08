@@ -6,8 +6,15 @@ import {
   SemanticAnalysis,
   OptimizedContext,
 } from '../types';
+import { GoogleGenAI } from '@google/genai';
 
 export class FormatGenerator {
+  private gemini: GoogleGenAI;
+
+  constructor(gemini: GoogleGenAI) {
+    this.gemini = gemini;
+  }
+
   async generate(
     result: ProcessingResult,
     formats: OutputFormat[]
@@ -15,7 +22,7 @@ export class FormatGenerator {
     const generatedFiles: GeneratedFile[] = [];
 
     for (const format of formats) {
-      const file = this.generateFile(format, result);
+      const file = await this.generateFile(format, result);
       if (file) {
         generatedFiles.push(file);
       }
@@ -24,23 +31,23 @@ export class FormatGenerator {
     return generatedFiles;
   }
 
-  private generateFile(
+  private async generateFile(
     format: OutputFormat,
     result: ProcessingResult
-  ): GeneratedFile | null {
+  ): Promise<GeneratedFile | null> {
     switch (format) {
       case 'agents.md':
-        return this.generateAgentsMd(result);
+        return await this.generateAgentsMd(result);
       case 'copilot-instructions.md':
-        return this.generateCopilotInstructions(result);
+        return await this.generateCopilotInstructions(result);
       case 'json':
-        return this.generateJson(result);
+        return await this.generateJson(result);
       default:
         return null;
     }
   }
 
-  private generateAgentsMd(result: ProcessingResult): GeneratedFile {
+  private async generateAgentsMd(result: ProcessingResult): Promise<GeneratedFile> {
     const { analysis, originalDocument } = result;
     const { title } = originalDocument.metadata;
     let content = `# AGENTS.md for ${title}\n\n`;
@@ -72,7 +79,7 @@ export class FormatGenerator {
     };
   }
 
-  private generateCopilotInstructions(result: ProcessingResult): GeneratedFile {
+  private async generateCopilotInstructions(result: ProcessingResult): Promise<GeneratedFile> {
     const { analysis, originalDocument } = result;
     const { title } = originalDocument.metadata;
     let content = `# Copilot Instructions for ${title}\n\n`;
@@ -99,7 +106,7 @@ export class FormatGenerator {
     };
   }
 
-  private generateJson(result: ProcessingResult): GeneratedFile {
+  private async generateJson(result: ProcessingResult): Promise<GeneratedFile> {
     const content = JSON.stringify(result, null, 2);
     const tokenCount = await this.countTokens(content);
     return {

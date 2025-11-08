@@ -1,6 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { ParsedDocument, SemanticAnalysis, KnowledgeGraph } from '../types.js';
 import { DocumentProcessingError } from '../utils/errors.js';
+import { semanticAnalysisSchema } from '../schemas.js';
 
 export class SemanticAnalyzer {
   constructor(private gemini: GoogleGenAI) {}
@@ -11,33 +13,20 @@ export class SemanticAnalyzer {
     ${document.content.substring(0, 8000)}...`;
 
     try {
-      const result = await model.generateContent(prompt);
-      const response = result.response.text();
-      // Parse AI response into structured format
-      return this.parseAnalysisResponse(response, document);
+      const result = await model.generateContent({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: zodToJsonSchema(semanticAnalysisSchema),
+        },
+      });
+      const response = result.response;
+      const json = JSON.parse(response.candidates[0].content.parts[0].text);
+      return semanticAnalysisSchema.parse(json);
     } catch (error) {
       throw new DocumentProcessingError(
         'Failed to analyze document semantics',
         'SEMANTIC_ANALYSIS_FAILED',
-        error
-      );
-    }
-  }
-
-  private parseAnalysisResponse(response: string, document: ParsedDocument): SemanticAnalysis {
-    try {
-      const parsed = JSON.parse(response);
-      return {
-        entities: parsed.entities || [],
-        relationships: parsed.relationships || [],
-        concepts: parsed.concepts || [],
-        dependencies: parsed.dependencies || [],
-        learningPath: parsed.learningPath || [],
-      };
-    } catch (error) {
-      throw new DocumentProcessingError(
-        'Failed to parse semantic analysis response',
-        'SEMANTIC_ANALYSIS_PARSE_FAILED',
         error
       );
     }
